@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HG Maze of The Ancients</title>
+    <script src="https://cdn-tailwindcss.vercel.app/"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark gray background */
+        }
+        #app-container {
+            display: flex;
+            flex-direction: row-reverse; /* Default layout, panel on the left */
+            gap: 2rem;
+            align-items: flex-start;
+        }
+        main {
+            flex-grow: 1;
+        }
+        #maps-container {
+            transition: transform 0.2s ease-in-out;
+            transform-origin: top left;
+        }
+        .maps-grid {
+             display: grid;
+             grid-template-columns: repeat(1, 1fr);
+             gap: 2rem;
+        }
+        .maps-grid.static-layout {
+            grid-template-columns: repeat(1, 1fr);
+        }
+        @media (min-width: 1024px) {
+            .maps-grid.static-layout {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+         @media (min-width: 1536px) {
+            .maps-grid.dynamic-layout {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (min-width: 2048px) {
+            .maps-grid.dynamic-layout {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        #portal-path-container {
+            width: 280px;
+            flex-shrink: 0;
+            position: sticky;
+            top: 2rem;
+        }
+        #portal-path-list li {
+            padding: 2px 4px;
+            border-radius: 4px;
+            transition: background-color 0.2s ease-in-out;
+        }
+        #portal-path-list li:hover {
+            background-color: #374151;
+            cursor: pointer;
+        }
+        .dimmed-map {
+            opacity: 0.6;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .maze-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            border: 2px solid #4B5563; /* Gray border for the grid */
+            aspect-ratio: 1 / 1;
+            grid-column: 2 / 3; /* Place maze in the grid layout */
+            grid-row: 2 / 3;
+        }
+        .map-wrapper {
+            display: grid;
+            grid-template-columns: 20px 1fr 20px;
+            grid-template-rows: 20px 1fr 20px;
+            gap: 8px; /* Space between labels and map */
+        }
+        .labels-x { display: grid; grid-template-columns: repeat(10, 1fr); }
+        .labels-y { display: grid; grid-template-rows: repeat(10, 1fr); }
+        .labels-top { grid-area: 1 / 2 / 2 / 3; align-self: end; }
+        .labels-bottom { grid-area: 3 / 2 / 4 / 3; align-self: start; }
+        .labels-left { grid-area: 2 / 1 / 3 / 2; justify-self: end; position: relative; top: 14px; }
+        .labels-right { grid-area: 2 / 3 / 3 / 4; justify-self: start; position: relative; top: 14px; }
+
+        .label-number {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #9CA3AF;
+            font-size: clamp(0.6rem, 1.2vw, 0.75rem);
+            aspect-ratio: 1 / 1;
+        }
+        .cell {
+            position: relative;
+            background-color: #374151;
+            border: 1px solid #1F2937;
+            cursor: pointer;
+        }
+        .cell-filled {
+            background-color: #111827 !important;
+            cursor: default;
+        }
+        .cell-one-way-dest {
+            background-color: #B45309 !important; /* amber-700 */
+        }
+
+        /* --- Wall Styling --- */
+        .wall-n { border-top: 6px solid #F87171; }
+        .wall-s { border-bottom: 6px solid #F87171; }
+        .wall-e { border-right: 6px solid #F87171; }
+        .wall-w { border-left: 6px solid #F87171; }
+        
+        /* --- Highlighting Styles --- */
+        .highlight-current { background-color: #60A5FA !important; }
+        .highlight-adjacent { background-color: #3B82F6 !important; }
+        .highlight-portal-one-way { background-color: #FBBF24 !important; box-shadow: 0 0 15px #FBBF24; }
+        .highlight-portal-two-way { background-color: #34D399 !important; box-shadow: 0 0 15px #34D399; }
+        .highlight-destination {
+            background-color: #A78BFA !important; /* Violet */
+            box-shadow: 0 0 20px #A78BFA;
+            z-index: 10;
+        }
+        .highlight-path-hover {
+            background-color: #FFFFFF !important; /* White */
+            box-shadow: 0 0 15px #FFFFFF;
+        }
+        .highlight-portal-origin {
+            box-shadow: 0 0 20px 3px #FFFFFF; /* White glow */
+            outline: 3px solid #FFFFFF;
+            z-index: 15;
+        }
+        .highlight-path-step {
+            background-color: #4f46e5 !important; /* indigo-600 */
+        }
+
+
+        /* --- Tooltip Styling --- */
+        .tooltip {
+            visibility: hidden;
+            width: max-content;
+            background-color: #1F2937;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 10px;
+            position: absolute;
+            z-index: 20;
+            bottom: 125%; /* Position the tooltip above the cell */
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.2s;
+            font-size: 0.75rem;
+            pointer-events: none; /* So it doesn't interfere with mouse events on the cell */
+        }
+
+        .cell:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* --- Cell Content Styling --- */
+        .cell-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: bold;
+            font-size: clamp(0.5rem, 1.5vw, 1rem);
+            color: #F9FAFB;
+            pointer-events: none;
+        }
+        .path-number-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: clamp(0.7rem, 2vw, 1.2rem);
+            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            z-index: 5;
+        }
+        .door-arrow {
+            position: absolute;
+            color: #FBBF24;
+            font-size: clamp(0.6rem, 2vw, 1.2rem);
+            font-weight: bold;
+        }
+        .door-N { top: 0; left: 50%; transform: translateX(-50%); }
+        .door-S { bottom: 0; left: 50%; transform: translateX(-50%); }
+        .door-W { left: 0; top: 50%; transform: translateY(-50%); }
+        .door-E { right: 0; top: 50%; transform: translateY(-50%); }
+        
+        /* --- UI Controls Styling --- */
+        .toggle-switch {
+            position: relative; display: inline-block; width: 60px; height: 34px;
+        }
+        .toggle-switch input { 
+            opacity: 0; width: 0; height: 0;
+        }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4B5563; transition: .4s; border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #3B82F6; }
+        input:checked + .slider:before { transform: translateX(26px); }
+
+    </style>
+</head>
+<body class="text-white p-4 md:p-8">
+
+    <div class="container mx-auto">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-5xl font-bold tracking-tight">HG Maze of The Ancients</h1>
+            <p class="text-gray-400 mt-2">Follow the instructions in the side panel to track your path.</p>
+        </header>
+
+        <div id="app-container">
+            <main>
+                <div class="bg-gray-900 rounded-lg p-3 mb-4 flex flex-wrap justify-center items-center gap-4">
+                     <button id="copy-path-btn" title="Copy Path" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm hidden">Copy Path</button>
+                     <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium">Static</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="layout-toggle">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="text-sm font-medium">Dynamic</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="zoom-out-btn" class="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded text-xl font-bold">-</button>
+                        <span id="zoom-display" class="w-16 text-center font-mono bg-gray-800 rounded">100%</span>
+                        <button id="zoom-in-btn" class="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded text-xl font-bold">+</button>
+                    </div>
+                </div>
+                <div id="maps-container">
+                    <div id="maps-grid" class="maps-grid static-layout">
+                        <!-- Maze levels will be injected here -->
+                    </div>
+                </div>
+            </main>
+
+            <aside id="portal-path-container" class="bg-gray-900 p-4 rounded-lg shadow-xl">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-xl font-bold">Portal Path</h2>
+                    <div class="flex gap-2">
+                        <button id="start-over-btn" title="Start Over" class="px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded hidden">Start Over</button>
+                        <button id="undo-btn" title="Undo last step" class="px-2 py-1 bg-red-700 hover:bg-red-600 rounded hidden">Undo</button>
+                        <button id="move-left-btn" title="Move panel left" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">◄</button>
+                        <button id="move-right-btn" title="Move panel right" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded">►</button>
+                    </div>
+                </div>
+                <div id="path-instructions" class="text-gray-400 text-sm mb-3">
+                    Please click on your starting cell. We suggest the Start cell at Level 1 (4,5).
+                </div>
+                <ol id="portal-path-list" class="list-decimal list-inside space-y-2 text-gray-300"></ol>
+            </aside>
+        </div>
+        
+        <footer class="mt-8 text-center bg-gray-800 p-4 rounded-lg shadow-md">
+             <h2 class="text-xl font-bold mb-2">Legend</h2>
+             <div class="flex justify-center flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
+                 <span><span class="font-bold text-blue-400">S</span> = Start</span>
+                 <span><span class="font-bold text-emerald-400">P</span> = Portal</span>
+                 <span><span class="font-bold text-violet-400">T</span> = Treasure/Secret</span>
+                 <span><span class="font-bold text-amber-400">▶</span> = One-Way Door</span>
+                 <span class="flex items-center"><div class="w-4 h-4 rounded bg-amber-400 mr-2"></div> = One-Way Portal Link</span>
+                 <span class="flex items-center"><div class="w-4 h-4 rounded bg-emerald-400 mr-2"></div> = Two-Way Portal Link</span>
+             </div>
+        </footer>
+    </div>
+
+<script>
+const mazeCSVData = `Level;Cell;Directions;Portal;Treasure;Maze Start;Potential Spawn;Item Name;Maze Key Door
+Level 1;(0,0);S, E;;;;;;
+Level 1;(0,1);N, S;;;;;;
+Level 1;(0,2);N, S;Two-way with Level 2 (0,2);;;;;
+Level 1;(0,3);N;One-way to Level 2 (3,9);;;;;
+Level 1;(0,4);E;Two-way with Level 4 (0,4);;;Yes;Seal of Shadows;
+Level 1;(0,5);E;Two-way with Level 3 (0,5);;;;;
+Level 1;(0,6);S;Two-way with Level 2 (0,6);;;;;
+Level 1;(0,7);N, S;;;;;;
+Level 1;(0,8);N, S, E;;;;;;
+Level 1;(0,9);N, E;;;;;;
+Level 1;(1,0);W, E;;;;;;
+Level 1;(1,1);S, E;;;;;;
+Level 1;(1,2);N, S, E;;;;;;
+Level 1;(1,3);N, S;;;;;;
+Level 1;(1,4);N, W;;Fighter Secret;;;;
+Level 1;(1,5);W, E;;;;;;
+Level 1;(1,6);S, E;;;;;;
+Level 1;(1,7);N, E;;;;;;
+Level 1;(1,8);S, W;;;;;;
+Level 1;(1,9);N, W;;;;;;
+Level 1;(2,0);S, W;;;;;;East
+Level 1;(2,1);N, S, W;;;;;;
+Level 1;(2,2);N, W, E;;;;;;
+Level 1;(2,3);S, E;;;;;;
+Level 1;(2,4);N, E;;;;;;
+Level 1;(2,5);S, W;;;;;;
+Level 1;(2,6);N, W;;;;;;
+Level 1;(2,7);W, E;;;;;;
+Level 1;(2,8);S;One-way to Level 3 (4,2);;;;;
+Level 1;(2,9);N, E;;;;;;
+Level 1;(3,0);E;;;;;;
+Level 1;(3,1);E;One-way to Level 4 (1,3);;;;;
+Level 1;(3,2);W, E;;;;;;
+Level 1;(3,3);W;One-way to Level 2 (9,1);;;;;
+Level 1;(3,4);S, W, E;;;;;;
+Level 1;(3,5);N;Two-way with Level 3 (3,5);;;;;
+Level 1;(3,6);;;;;;;West
+Level 1;(3,7);S, W, E;;;;;;
+Level 1;(3,8);N, E;One-way to Level 2 (1,7);;;;;
+Level 1;(3,9);W, E;;;;;;
+Level 1;(4,0);W, E;;;;;;
+Level 1;(4,1);S, W;;;;;;
+Level 1;(4,2);N, W;;;;;;
+Level 1;(4,3);E;Two-way with Level 2 (4,3);;;;;
+Level 1;(4,4);S, W, E;Two-way with Level 2 (3,4);;;;;
+Level 1;(4,5);N, E;;;Maze Start;;;
+Level 1;(4,6);S, E;;;;;;
+Level 1;(4,7);N, S, W;;;;;;
+Level 1;(4,8);N, W;;;;;;
+Level 1;(4,9);W;One-way to Level 4 (5,1);;;;;
+Level 1;(5,0);W, E;;;;;;
+Level 1;(5,1);S, E;;;;;;
+Level 1;(5,2);N, S;;;;;;
+Level 1;(5,3);N, S, W;;;;;;
+Level 1;(5,4);N, S, W;;;;;;
+Level 1;(5,5);N, S, W, E;;;;;;
+Level 1;(5,6);N, S, W;;;;;;
+Level 1;(5,7);N, S;;;;;;
+Level 1;(5,8);N, S;;;;;;
+Level 1;(5,9);N;Two-way with Level 2 (5,9);;;;;
+Level 1;(6,0);W, E;;;;;;
+Level 1;(6,1);W;Two-way with Level 2 (6,1);;;;;
+Level 1;(6,2);S;One-way to Level 3 (2,8);;;;;
+Level 1;(6,3);N, S;;;;;;
+Level 1;(6,4);N, S;;;;;;
+Level 1;(6,5);N, W, E;;;;;;
+Level 1;(6,6);S;One-way to Level 1 (3,6);;;;;
+Level 1;(6,7);N;Two-way with Level 2 (6,7);;;;;
+Level 1;(6,8);S, E;One-way to Level 2 (8,1);;;Yes;Glasdir;
+Level 1;(6,9);N, E;;;;;;
+Level 1;(7,0);W, E;;;;;;
+Level 1;(7,1);S;One-way to Level 2 (4,8);;;;;
+Level 1;(7,2);N, E;;;;;;
+Level 1;(7,3);S, E;;;;;;
+Level 1;(7,4);N;;;;;;South
+Level 1;(7,5);W;;;;;;
+Level 1;(7,6);S, E;;;;;;
+Level 1;(7,7);N, S, E;;;;;;
+Level 1;(7,8);N, S, W;;;;;;
+Level 1;(7,9);N, W, E;;;;;;
+Level 1;(8,0);W, E;;;;;;
+Level 1;(8,1);S, E;;;;;;
+Level 1;(8,2);N, W;;;;;;
+Level 1;(8,3);S, W, E;;Cleric and Paladin Secret;;;;
+Level 1;(8,4);N, S, E;;;;;;
+Level 1;(8,5);N, E;;;;;;
+Level 1;(8,6);W, E;;;;;;
+Level 1;(8,7);W;One-way to Level 4 (1,4);;;;;
+Level 1;(8,8);E;One-way to Level 2 (9,5);;;;;
+Level 1;(8,9);W, E;;;;;;
+Level 1;(9,0);S, W;;;;;;
+Level 1;(9,1);N, S, W;;;;;;
+Level 1;(9,2);N, S;;;;;;
+Level 1;(9,3);N, S, W;;;;;;
+Level 1;(9,4);N, W;;;;;;
+Level 1;(9,5);S, W;;;;;;
+Level 1;(9,6);N, W;;;;;;
+Level 1;(9,7);S;One-way to Level 4 (3,4);;;;;
+Level 1;(9,8);N, W;;;;;;
+Level 1;(9,9);W;Two-way with Level 4 (9,9);;;;;
+Level 2;(0,0);S, E;;;;;;
+Level 2;(0,1);N;One-way to Level 3 (8,4);;;;;
+Level 2;(0,2);E;Two-way with Level 1 (0,2);;;;;
+Level 2;(0,3);E;One-way to Level 1 (1,9);;;;;
+Level 2;(0,4);;;;;;;
+Level 2;(0,5);;;;;;;
+Level 2;(0,6);S;Two-way with Level 1 (0,6);;;;;
+Level 2;(0,7);N, S;;;;;;
+Level 2;(0,8);N, S;;;;;;
+Level 2;(0,9);N, E;;;;Yes;Seal of Shadows;
+Level 2;(1,0);W, E;;;;;;
+Level 2;(1,1);S, E;;;;;;
+Level 2;(1,2);N, W, E;;;;;;
+Level 2;(1,3);S, W, E;;;;;;
+Level 2;(1,4);N, S;;;;;;
+Level 2;(1,5);N, S;;;;;;
+Level 2;(1,6);N;Two-way with Level 4 (1,6);;;;;
+Level 2;(1,7);S, E;;;;;;
+Level 2;(1,8);N, S;;;;;;
+Level 2;(1,9);N, W;;;;;;
+Level 2;(2,0);S, W, E;;;;;;
+Level 2;(2,1);N, S, W;;;;;;
+Level 2;(2,2);N, S, W;;;;;;
+Level 2;(2,3);N, W;;;;;;
+Level 2;(2,4);E;;;;;;South
+Level 2;(2,5);S;;;;;;
+Level 2;(2,6);N, E;;;;;;
+Level 2;(2,7);S, W;;;;;;
+Level 2;(2,8);N, S;;;;;;
+Level 2;(2,9);N, E;;;;;;
+Level 2;(3,0);W, E;;;;;;
+Level 2;(3,1);S, E;;;;;;
+Level 2;(3,2);N, S, E;;;;;;
+Level 2;(3,3);N, S;;;;;;
+Level 2;(3,4);N, W, E;Two-way with Level 1 (4,4);;;;;
+Level 2;(3,5);;;;;;;
+Level 2;(3,6);S, W, E;;;;;;
+Level 2;(3,7);N, S;;;;;;
+Level 2;(3,8);N, S, E;;;;;;
+Level 2;(3,9);N, W, E;;;;;;
+Level 2;(4,0);S, W;;;;;;
+Level 2;(4,1);N, S, W;;;;;;
+Level 2;(4,2);N, W;;;;;;
+Level 2;(4,3);E;Two-way with Level 1 (4,3);;;;;
+Level 2;(4,4);W;Two-way with Level 3 (4,4);;;;;
+Level 2;(4,5);E;One-way to Level 3 (5,3);;;;;
+Level 2;(4,6);S, W;;;;;;
+Level 2;(4,7);N, E;;;;;;
+Level 2;(4,8);S, W;;;;;;
+Level 2;(4,9);N, W;One-way to Level 1 (4,5);;;;;
+Level 2;(5,0);E;One-way to Level 4 (0,0);;;;;
+Level 2;(5,1);S, E;;;;;;
+Level 2;(5,2);N;One-way to Level 1 (4,8);;;;;
+Level 2;(5,3);S, W;;;;Yes;Glasdir;
+Level 2;(5,4);N;One-way to Level 3 (2,9);;;;;
+Level 2;(5,5);S, W;;;;;;
+Level 2;(5,6);N, S;;;;;;
+Level 2;(5,7);N, W;;;;;;
+Level 2;(5,8);S;One-way to Level 4 (0,7);;;;;
+Level 2;(5,9);N, E;Two-way with Level 1 (5,9);;;;;
+Level 2;(6,0);S, W;;;;;;
+Level 2;(6,1);N, S, W, E;Two-way with Level 1 (6,1);;;;;
+Level 2;(6,2);N, S;;;;;;
+Level 2;(6,3);N, S;;;;;;
+Level 2;(6,4);N;;;;;;
+Level 2;(6,5);S;;;;;;North
+Level 2;(6,6);N, S;;;;;;
+Level 2;(6,7);N, E;Two-way with Level 1 (6,7);;;;;
+Level 2;(6,8);E;One-way to Level 3 (3,8);;;;;
+Level 2;(6,9);W;One-way to Level 4 (3,8);;;;;
+Level 2;(7,0);E;One-way to Level 3 (9,5);;;;;
+Level 2;(7,1);W;One-way to Level 3 (3,4);;;;;
+Level 2;(7,2);E;;;;;;South
+Level 2;(7,3);S;;;;;;
+Level 2;(7,4);N, E;;;;;;
+Level 2;(7,5);S;Two-way with Level 3 (7,5);;;;;
+Level 2;(7,6);N, E;;;;Yes;Seal of Shadows;
+Level 2;(7,7);W, E;;;;;;
+Level 2;(7,8);S, W, E;;;;;;
+Level 2;(7,9);N;One-way to Level 1 (3,7);;;;;
+Level 2;(8,0);S, W, E;;;;;;
+Level 2;(8,1);N, E;;;;;;
+Level 2;(8,2);W, E;;;;;;
+Level 2;(8,3);E;One-way to Level 3 (2,3);;;;;
+Level 2;(8,4);W, E;;;;;;
+Level 2;(8,5);S, E;;;;;;
+Level 2;(8,6);N, W, E;;;;;;
+Level 2;(8,7);W;Two-way with Level 3 (8,7);;;;;
+Level 2;(8,8);S, W, E;;;;;;
+Level 2;(8,9);N;Two-way with Level 3 (8,9);;;;;
+Level 2;(9,0);S, W;;;;;;
+Level 2;(9,1);N, W;;Rogue Secret;;;;
+Level 2;(9,2);S, W;;;;;;
+Level 2;(9,3);N, W;Two-way with Level 3 (9,3);;;;;
+Level 2;(9,4);W;Two-way with Level 3 (9,4);;;;;
+Level 2;(9,5);S, W;;;;;;
+Level 2;(9,6);N, S, W;;;;;;
+Level 2;(9,7);N, S;;;;;;
+Level 2;(9,8);N, W;;;;;;
+Level 2;(9,9);;;;;;;
+Level 3;(0,0);S, E;;;;;;
+Level 3;(0,1);N, E;;;;;;
+Level 3;(0,2);S;One-way to Level 1 (5,4);;;;;
+Level 3;(0,3);N, E;;;;;;
+Level 3;(0,4);;;;;;;
+Level 3;(0,5);S, E;Two-way with Level 1 (0,5);;;;;
+Level 3;(0,6);N, S;;;;;;
+Level 3;(0,7);N;;;;;;
+Level 3;(0,8);S, E;;;;;;
+Level 3;(0,9);N, E;;;;;;
+Level 3;(1,0);S, W, E;;;;;;
+Level 3;(1,1);N, W;One-way to Level 4 (0,9);;;;;
+Level 3;(1,2);S, E;;;;;;
+Level 3;(1,3);N, W;;;;;;
+Level 3;(1,4);S;One-way to Level 2 (0,0);;;;;
+Level 3;(1,5);N, W, E;Two-way with Level 4 (1,5);;;;;
+Level 3;(1,6);;;;;;;
+Level 3;(1,7);S;One-way to Level 1 (0,9);;;;;
+Level 3;(1,8);N, W;;;;;;
+Level 3;(1,9);W, E;;;;;;
+Level 3;(2,0);W, E;;;;;;
+Level 3;(2,1);E;Two-way with Level 4 (2,1);;;;;
+Level 3;(2,2);W, E;;;;;;
+Level 3;(2,3);S, E;;;;;;
+Level 3;(2,4);N, E;;;;;;
+Level 3;(2,5);S, W;;;;;;
+Level 3;(2,6);N, S, E;;;;;;
+Level 3;(2,7);N;Two-way with Level 4 (2,7);;;;;
+Level 3;(2,8);S, E;;Red Dragon Disciple Secret;;;;
+Level 3;(2,9);N, W, E;;;;;;
+Level 3;(3,0);W, E;;;;;;
+Level 3;(3,1);W, E;;;;;;
+Level 3;(3,2);W, E;;;;;;
+Level 3;(3,3);S, W, E;;;;;;
+Level 3;(3,4);N, W, E;;;;;;
+Level 3;(3,5);E;Two-way with Level 1 (3,5);;;;;
+Level 3;(3,6);W;One-way to Level 2 (9,0);;;;;
+Level 3;(3,7);S;Two-way with Level 4 (3,7);;;;;
+Level 3;(3,8);N, S, W;;;;Yes;Glasdir;
+Level 3;(3,9);N, W;Two-way with Level 4 (3,9);;;;;
+Level 3;(4,0);W;;;;;;
+Level 3;(4,1);W, E;;;;;;
+Level 3;(4,2);S, W;One-way to Level 1 (5,5);;;;;
+Level 3;(4,3);N, W;;;;;;
+Level 3;(4,4);W;Two-way with Level 2 (4,4);;;;;
+Level 3;(4,5);W, E;;;;;;
+Level 3;(4,6);S, E;;;;Yes;Seal of Shadows;
+Level 3;(4,7);N, S;;;;;;
+Level 3;(4,8);N, E;;;;;;
+Level 3;(4,9);E;One-way to Level 2 (3,2);;;;;
+Level 3;(5,0);E;;;;;;West
+Level 3;(5,1);S, W;;;;;;
+Level 3;(5,2);N, E;;;;;;
+Level 3;(5,3);S, E;;;;;;
+Level 3;(5,4);N, S, E;;;;;;
+Level 3;(5,5);N, W;;;;;;
+Level 3;(5,6);S, W;One-way to Level 4 (0,3);;;;;
+Level 3;(5,7);N, E;;;;;;
+Level 3;(5,8);S, W, E;;;;;;
+Level 3;(5,9);N, W, E;;;;Yes;Glasdir;
+Level 3;(6,0);S, W;;;;;;
+Level 3;(6,1);N, E;;;;;;
+Level 3;(6,2);S, W;;;;;;
+Level 3;(6,3);N, S, W, E;;;;;;
+Level 3;(6,4);N, S, W;;;;;;
+Level 3;(6,5);N, S;;;;;;
+Level 3;(6,6);N, E;;;;;;
+Level 3;(6,7);W, E;;;;;;
+Level 3;(6,8);S, W;;;;;;
+Level 3;(6,9);N, W, E;;;;;;
+Level 3;(7,0);S, E;;;;;;
+Level 3;(7,1);N, S, W, E;;;;;;
+Level 3;(7,2);N, E;;;;;;
+Level 3;(7,3);W, E;;;;;;
+Level 3;(7,4);E;Two-way with Level 4 (7,4);;;;;
+Level 3;(7,5);S;Two-way with Level 2 (7,5);;;;;
+Level 3;(7,6);N, W;;;;;;
+Level 3;(7,7);W, E;;;;;;
+Level 3;(7,8);S, E;;;;;;
+Level 3;(7,9);N, W;;;;;;
+Level 3;(8,0);S, W, E;One-way to Level 2 (3,1);;;;;
+Level 3;(8,1);N, S, W, E;;;;;;
+Level 3;(8,2);N, W, E;;;;;;
+Level 3;(8,3);W;Two-way with Level 4 (8,3);;;;;
+Level 3;(8,4);S, W, E;;;;;;
+Level 3;(8,5);N, E;One-way to Level 2 (1,1);;;;;
+Level 3;(8,6);S, E;;;;;;
+Level 3;(8,7);N, S, W;Two-way with Level 2 (8,7);;;;;
+Level 3;(8,8);N, S, W;;;;;;
+Level 3;(8,9);N;Two-way with Level 2 (8,9);;;;;
+Level 3;(9,0);S, W;;;;;;
+Level 3;(9,1);N, S, W;;;;;;
+Level 3;(9,2);N, S, W;;;;;;
+Level 3;(9,3);N;Two-way with Level 2 (9,3);;;;;
+Level 3;(9,4);S, W;Two-way with Level 2 (9,4);;;;;
+Level 3;(9,5);N, W;;;;;;
+Level 3;(9,6);S, W;;;;;;
+Level 3;(9,7);N, S;;;;;;
+Level 3;(9,8);N;One-way to Level 1 (9,8);;;;;
+Level 3;(9,9);;;;;;;
+Level 4;(0,0);S, E;;;;;;
+Level 4;(0,1);N, S;;;;;;
+Level 4;(0,2);N, E;;;;Yes;Seal of Shadows;
+Level 4;(0,3);S, E;;;;;;
+Level 4;(0,4);N, S, E;Two-way with Level 1 (0,4);;;;;
+Level 4;(0,5);N, S;;;;;;
+Level 4;(0,6);N, E;;;;;;
+Level 4;(0,7);E;;;;;;
+Level 4;(0,8);S;One-way to Level 1 (5,5);;;;;
+Level 4;(0,9);N;;Dachy Entrance;;;;
+Level 4;(1,0);S, W;;;;;;
+Level 4;(1,1);N, E;;;;;;
+Level 4;(1,2);S, W;;;;;;
+Level 4;(1,3);N, S, W;;;;Yes;Glasdir;
+Level 4;(1,4);N, S, W;;;;;;
+Level 4;(1,5);N;Two-way with Level 3 (1,5);;;;;
+Level 4;(1,6);W;Two-way with Level 2 (1,6);;;;;
+Level 4;(1,7);W;One-way to Level 1 (2,9);;;;;
+Level 4;(1,8);S;One-way to Level 1 (4,5);;;;;
+Level 4;(1,9);N;;Subrace Sphinx;;;;
+Level 4;(2,0);E;;;;;;
+Level 4;(2,1);W;Two-way with Level 3 (2,1);;;;;
+Level 4;(2,2);S, E;;;;;;
+Level 4;(2,3);N;One-way to Level 2 (8,0);;;;;
+Level 4;(2,4);S, E;;;;;;
+Level 4;(2,5);N, S;;;;;;
+Level 4;(2,6);N;One-way to Level 3 (3,3);;;;;
+Level 4;(2,7);S, E;Two-way with Level 3 (2,7);;;;;
+Level 4;(2,8);N, S;;;;;;
+Level 4;(2,9);N;One-way to Level 3 (4,3);;;;;
+Level 4;(3,0);S, W, E;;;;;;
+Level 4;(3,1);N, E;;;;;;
+Level 4;(3,2);S, W;;;;;;
+Level 4;(3,3);N, S, E;;;;;;
+Level 4;(3,4);N, S, W, E;;;;;;
+Level 4;(3,5);N, E;;;;;;
+Level 4;(3,6);S;;;;;;
+Level 4;(3,7);N, S, W;Two-way with Level 3 (3,7);;;;;
+Level 4;(3,8);N;;;;;;
+Level 4;(3,9);E;Two-way with Level 3 (3,9);;;;;
+Level 4;(4,0);S, W;;Glasdir Sphinx;;;;
+Level 4;(4,1);N, S, W;;;;;;
+Level 4;(4,2);N;One-way to Level 2 (3,8);;;;;
+Level 4;(4,3);W, E;;;;;;
+Level 4;(4,4);S, W;;;;;;
+Level 4;(4,5);N, S, W, E;;;;;;
+Level 4;(4,6);N, S;;;;;;West
+Level 4;(4,7);N;One-way to Level 1 (0,8);;;;;
+Level 4;(4,8);S;;;;;;
+Level 4;(4,9);N, W;;;;Yes;Glasdir;
+Level 4;(5,0);S, E;;;;;;
+Level 4;(5,1);N, S, E;;;;;;
+Level 4;(5,2);N, E;One-way to Level 1 (4,4);;;;;
+Level 4;(5,3);W, E;;;;;;
+Level 4;(5,4);S;One-way to Level 2 (9,8);;;;;
+Level 4;(5,5);N, W, E;;;;;;
+Level 4;(5,6);S, E;;;;;;
+Level 4;(5,7);N, E;;;;;;
+Level 4;(5,8);S;;;;;;West
+Level 4;(5,9);N, E;;;;;;
+Level 4;(6,0);S, W, E;;;;;;
+Level 4;(6,1);N, S, W, E;;;;;;
+Level 4;(6,2);N, W, E;;;;;;
+Level 4;(6,3);W, E;;;;;;
+Level 4;(6,4);E;One-way to Level 3 (0,7);;;;;
+Level 4;(6,5);W;One-way to Level 4 (2,0);;;;;
+Level 4;(6,6);W, E;;;;;;
+Level 4;(6,7);S, W, E;;;;;;
+Level 4;(6,8);N, S, E;;;;;;
+Level 4;(6,9);N, W, E;;;;;;
+Level 4;(7,0);S, W, E;;;;;;
+Level 4;(7,1);N, S, W, E;;;;;;
+Level 4;(7,2);N, W, E;;;;;;
+Level 4;(7,3);W, E;;;;;;
+Level 4;(7,4);W;Two-way with Level 3 (7,4);;;;;
+Level 4;(7,5);E;One-way to Level 2 (4,1);;;;;
+Level 4;(7,6);W, E;;;;;;
+Level 4;(7,7);W;;;;;;
+Level 4;(7,8);S, W, E;;;;;;
+Level 4;(7,9);N, W, E;;;;;;
+Level 4;(8,0);S, W, E;;;;;;
+Level 4;(8,1);N, S, W, E;;;;;;
+Level 4;(8,2);N, W, E;;;;;;
+Level 4;(8,3);W;Two-way with Level 3 (8,3);;;;;
+Level 4;(8,4);S, E;;;;;;
+Level 4;(8,5);N, W, E;;;;;;
+Level 4;(8,6);W, E;;;;;;
+Level 4;(8,7);S, E;;;;;;
+Level 4;(8,8);N, W;;;;;;
+Level 4;(8,9);W;One-way to Level 3 (6,4);;;;;
+Level 4;(9,0);S, W;;;;;;
+Level 4;(9,1);N, S, W;;;;;;
+Level 4;(9,2);N, W;;;;;;
+Level 4;(9,3);S;One-way to Level 3 (9,2);;;;;
+Level 4;(9,4);N, S, W;;;;;;
+Level 4;(9,5);N, S, W;;;;;;
+Level 4;(9,6);N, W;;;;;;
+Level 4;(9,7);S, W;;;;;;
+Level 4;(9,8);N, S;;;;;;
+Level 4;(9,9);N;Two-way with Level 1 (9,9);;;;;
+`;
+
+document.addEventListener('DOMContentLoaded', () => {
+    // --- STATE MANAGEMENT ---
+    let pathStarted = false;
+    let activeLevel = -1;
+    let pathCoords = [];
+    let permanentHighlight = null;
+    let currentZoom = 100;
+
+    // --- DOM ELEMENTS ---
+    const mapsGrid = document.getElementById('maps-grid');
+    const mapsContainer = document.getElementById('maps-container');
+    const appContainer = document.getElementById('app-container');
+    const portalPathContainer = document.getElementById('portal-path-container');
+    const moveLeftBtn = document.getElementById('move-left-btn');
+    const moveRightBtn = document.getElementById('move-right-btn');
+    const undoBtn = document.getElementById('undo-btn');
+    const startOverBtn = document.getElementById('start-over-btn');
+    const instructionsDiv = document.getElementById('path-instructions');
+    const pathList = document.getElementById('portal-path-list');
+    const layoutToggle = document.getElementById('layout-toggle');
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const zoomDisplay = document.getElementById('zoom-display');
+    const copyPathBtn = document.getElementById('copy-path-btn');
+
+
+    // --- 1. DATA PARSING ---
+    const mazeData = {};
+    const rows = mazeCSVData.trim().split('\n').slice(1);
+    const correctedRows = rows.map(row => row.replace("Level  2", "Level 2"));
+
+    correctedRows.forEach(row => {
+        const cols = row.split(';');
+        if (cols.length < 9) return;
+        const levelMatch = cols[0].match(/(\d+)/);
+        const cellMatch = cols[1].match(/\((\d+),(\d+)\)/);
+        if (!levelMatch || !cellMatch) return;
+
+        const level = parseInt(levelMatch[1]);
+        const x = parseInt(cellMatch[1]);
+        const y = parseInt(cellMatch[2]);
+
+        if (!mazeData[level]) {
+            mazeData[level] = Array.from({ length: 10 }, () => Array.from({ length: 10 }, () => null));
+        }
+        
+        mazeData[level][y][x] = { level, y, x, directions: cols[2] ? cols[2].split(',').map(d => d.trim()) : [], portal: cols[3], treasure: cols[4], start: cols[5] === 'Maze Start', itemName: cols[7], door: cols[8] };
+    });
+
+    // --- 2. MAZE RENDERING ---
+    // First pass: identify one-way portal destinations
+     for (let level = 1; level <= 4; level++) {
+        for (let y = 0; y < 10; y++) {
+            for (let x = 0; x < 10; x++) {
+                const cellData = mazeData[level]?.[y]?.[x];
+                if (cellData && cellData.portal && cellData.portal.toLowerCase().includes('one-way')) {
+                    const portalMatch = cellData.portal.match(/Level (\d+)\s*\((\d+),(\d+)\)/);
+                    if (portalMatch) {
+                        const destLevel = portalMatch[1], destX = portalMatch[2], destY = portalMatch[3];
+                        const destCellData = mazeData[destLevel]?.[destY]?.[destX];
+                        if (destCellData) {
+                            destCellData.isOneWayDest = true;
+                            destCellData.origin = { level, y, x };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (let level = 1; level <= 4; level++) {
+        const levelContainer = document.createElement('div');
+        levelContainer.className = 'p-4 bg-gray-900 rounded-lg shadow-xl';
+        levelContainer.id = `level-container-${level}`;
+        
+        const levelHeader = document.createElement('h2');
+        levelHeader.className = 'text-2xl font-bold mb-4 text-center';
+        levelHeader.textContent = `Level ${level}`;
+        levelContainer.appendChild(levelHeader);
+        
+        const mapWrapper = document.createElement('div');
+        mapWrapper.className = 'map-wrapper';
+
+        const topLabels = document.createElement('div'); topLabels.className = 'labels-x labels-top';
+        const bottomLabels = document.createElement('div'); bottomLabels.className = 'labels-x labels-bottom';
+        const leftLabels = document.createElement('div'); leftLabels.className = 'labels-y labels-left';
+        const rightLabels = document.createElement('div'); rightLabels.className = 'labels-y labels-right';
+
+        for (let i = 0; i < 10; i++) {
+            const topLabel = document.createElement('div'); topLabel.className = 'label-number'; topLabel.textContent = i; topLabels.appendChild(topLabel);
+            const bottomLabel = document.createElement('div'); bottomLabel.className = 'label-number'; bottomLabel.textContent = i; bottomLabels.appendChild(bottomLabel);
+            const leftLabel = document.createElement('div'); leftLabel.className = 'label-number'; leftLabel.textContent = i; leftLabels.appendChild(leftLabel);
+            const rightLabel = document.createElement('div'); rightLabel.className = 'label-number'; rightLabel.textContent = i; rightLabels.appendChild(rightLabel);
+        }
+
+        mapWrapper.appendChild(topLabels); mapWrapper.appendChild(bottomLabels);
+        mapWrapper.appendChild(leftLabels); mapWrapper.appendChild(rightLabels);
+
+        const grid = document.createElement('div');
+        grid.className = 'maze-grid';
+        grid.id = `level-${level}`;
+
+        for (let y = 0; y < 10; y++) {
+            for (let x = 0; x < 10; x++) {
+                const cellDiv = document.createElement('div');
+                cellDiv.className = 'cell';
+                cellDiv.dataset.level = level; cellDiv.dataset.y = y; cellDiv.dataset.x = x;
+                
+                const cellData = mazeData[level]?.[y]?.[x];
+
+                if (cellData) {
+                    if (cellData.isOneWayDest) {
+                        cellDiv.classList.add('cell-one-way-dest');
+                        cellDiv.dataset.originLevel = cellData.origin.level;
+                        cellDiv.dataset.originY = cellData.origin.y;
+                        cellDiv.dataset.originX = cellData.origin.x;
+                    }
+                    if (cellData.directions.length === 0 && !cellData.portal && !cellData.treasure && !cellData.start && (!cellData.door || cellData.door.trim().length === 0)) {
+                         cellDiv.classList.add('cell-filled');
+                    } else {
+                         cellDiv.addEventListener('click', handleCellClick);
+                    }
+                } else {
+                    cellDiv.classList.add('cell-filled');
+                }
+               
+
+                const directions = cellData ? cellData.directions : [];
+                if (!directions.includes('N')) cellDiv.classList.add('wall-n');
+                if (!directions.includes('S')) cellDiv.classList.add('wall-s');
+                if (!directions.includes('E')) cellDiv.classList.add('wall-e');
+                if (!directions.includes('W')) cellDiv.classList.add('wall-w');
+
+                if (cellData) {
+                    const content = document.createElement('div');
+                    content.className = 'cell-content';
+                    if (cellData.start) { content.textContent = 'S'; content.style.color = '#60A5FA'; } 
+                    else if (cellData.treasure) { content.textContent = 'T'; content.style.color = '#A78BFA'; } 
+                    else if (cellData.portal) { content.textContent = 'P'; content.style.color = '#34D399'; }
+                    cellDiv.appendChild(content);
+
+                    // Add tooltip for treasure items
+                    if (cellData.treasure && cellData.treasure.trim().length > 0) {
+                        const tooltip = document.createElement('span');
+                        tooltip.className = 'tooltip';
+                        tooltip.textContent = cellData.treasure.trim();
+                        cellDiv.appendChild(tooltip);
+                    }
+
+                    if(cellData.door && cellData.door.trim().length > 0){
+                        const doorArrow = document.createElement('div');
+                        const dir = cellData.door.trim().charAt(0).toUpperCase();
+                        doorArrow.className = `door-arrow door-${dir}`;
+                        doorArrow.textContent = {N: '▲', S: '▼', E: '►', W: '◄'}[dir];
+                        cellDiv.appendChild(doorArrow);
+                    }
+                }
+                
+                grid.appendChild(cellDiv);
+            }
+        }
+        mapWrapper.appendChild(grid);
+        levelContainer.appendChild(mapWrapper);
+        mapsGrid.appendChild(levelContainer);
+    }
+    
+    // --- 3. INTERACTIVITY & HIGHLIGHTING ---
+    const allCells = document.querySelectorAll('.cell:not(.cell-filled)');
+    allCells.forEach(cell => {
+        cell.addEventListener('mouseover', handleMouseOver);
+        cell.addEventListener('mouseout', handleMouseOut);
+    });
+
+    function handleMouseOut() {
+        allCells.forEach(c => c.classList.remove('highlight-current', 'highlight-adjacent', 'highlight-portal-one-way', 'highlight-portal-two-way', 'highlight-portal-origin'));
+        // Reset any temporary opacity changes from hover
+        for (let i = 1; i <= 4; i++) {
+            const levelContainer = document.getElementById(`level-container-${i}`);
+            if (levelContainer) {
+                levelContainer.style.opacity = ''; // Clear inline style, letting CSS class take over
+            }
+        }
+    }
+
+    function handleMouseOver(e) {
+        handleMouseOut();
+        const cell = e.target;
+        const { level, y, x } = cell.dataset;
+        const cellData = mazeData[level]?.[y]?.[x];
+        if (!cellData) return;
+
+        cell.classList.add('highlight-current');
+        
+        // Handle hovering over a one-way destination
+        if (cell.classList.contains('cell-one-way-dest')) {
+            const { originLevel, originY, originX } = cell.dataset;
+            const originCell = document.querySelector(`.cell[data-level='${originLevel}'][data-y='${originY}'][data-x='${originX}']`);
+            if (originCell) {
+                originCell.classList.add('highlight-portal-origin');
+            }
+        }
+
+        cellData.directions.forEach(dir => {
+            let nextY = parseInt(y), nextX = parseInt(x);
+            if (dir === 'N') nextY--; if (dir === 'S') nextY++;
+            if (dir === 'W') nextX--; if (dir === 'E') nextX++;
+            const adjacentCell = document.querySelector(`.cell[data-level='${level}'][data-y='${nextY}'][data-x='${nextX}']`);
+            if (adjacentCell) adjacentCell.classList.add('highlight-adjacent');
+        });
+
+        if (cellData.portal) {
+            const portalMatch = cellData.portal.match(/Level (\d+)\s*\((\d+),(\d+)\)/);
+            if (portalMatch) {
+                const destLevel = portalMatch[1], destX = portalMatch[2], destY = portalMatch[3];
+                const destCell = document.querySelector(`.cell[data-level='${destLevel}'][data-y='${destY}'][data-x='${destX}']`);
+                if (destCell) {
+                    const highlightClass = cellData.portal.toLowerCase().includes('two-way') ? 'highlight-portal-two-way' : 'highlight-portal-one-way';
+                    destCell.classList.add(highlightClass);
+
+                    // If hovering a portal on the active map, adjust destination map opacity
+                    if (pathStarted && parseInt(level) === activeLevel) {
+                        const destLevelContainer = document.getElementById(`level-container-${destLevel}`);
+                        if (destLevelContainer && parseInt(destLevel) !== activeLevel) {
+                            destLevelContainer.style.opacity = '0.9';
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 4. PORTAL PATH TRACKING LOGIC ---
+    function handleCellClick(e) {
+        const cell = e.target;
+        const { level, y, x } = cell.dataset;
+        const cellData = mazeData[level]?.[y]?.[x];
+        if (!cellData) return;
+
+
+        if (!pathStarted) {
+            pathStarted = true;
+            activeLevel = parseInt(level);
+            pathCoords.push({ level, x, y, type: 'start' });
+            instructionsDiv.textContent = "Now, click a portal on the active map level to continue the path.";
+            updatePathDisplay();
+        } else {
+            if (parseInt(level) !== activeLevel) return; // Ignore clicks on inactive maps
+            if (!cellData.portal) return; // Ignore clicks on non-portal cells
+
+            const isOneWay = cellData.portal.toLowerCase().includes('one-way');
+            const portalMatch = cellData.portal.match(/Level (\d+)\s*\((\d+),(\d+)\)/);
+            if (!portalMatch) return;
+
+            const destLevel = parseInt(portalMatch[1]);
+            const destX = portalMatch[2];
+            const destY = portalMatch[3];
+
+            pathCoords.push({ level, x, y, type: 'portal' });
+            if (isOneWay) {
+                pathCoords.push({ level: destLevel, x: destX, y: destY, type: 'one-way-dest' });
+            }
+
+            activeLevel = destLevel;
+
+            // Set new permanent highlight
+            if (permanentHighlight) permanentHighlight.classList.remove('highlight-destination');
+            permanentHighlight = document.querySelector(`.cell[data-level='${destLevel}'][data-y='${destY}'][data-x='${destX}']`);
+            if (permanentHighlight) permanentHighlight.classList.add('highlight-destination');
+            
+            updatePathDisplay();
+        }
+    }
+    
+    function handleUndo() {
+        if (pathCoords.length <= 1) return;
+
+        // Remove the last portal click
+        const removed = pathCoords.pop();
+
+        // If the removed was a one-way destination, remove the origin portal as well
+        if (removed.type === 'one-way-dest') {
+            pathCoords.pop();
+        }
+
+
+        // Clear existing permanent highlight
+        if (permanentHighlight) {
+            permanentHighlight.classList.remove('highlight-destination');
+            permanentHighlight = null;
+        }
+
+        // The new "current" location is the last item in the array
+        const lastCoord = pathCoords[pathCoords.length - 1];
+        const lastCellData = mazeData[lastCoord.level]?.[lastCoord.y]?.[lastCoord.x];
+
+        if (pathCoords.length === 1) {
+            // We've reverted back to the start
+            activeLevel = parseInt(lastCoord.level);
+            instructionsDiv.textContent = "Now, click a portal on the active map level to continue the path.";
+        } else if (lastCellData && lastCellData.portal) {
+            // Find the destination of the NEW last portal to set the active state
+            const portalMatch = lastCellData.portal.match(/Level (\d+)\s*\((\d+),(\d+)\)/);
+            if (portalMatch) {
+                const destLevel = parseInt(portalMatch[1]);
+                const destX = portalMatch[2];
+                const destY = portalMatch[3];
+                activeLevel = destLevel;
+
+                // Re-apply the highlight to the new destination
+                permanentHighlight = document.querySelector(`.cell[data-level='${destLevel}'][data-y='${destY}'][data-x='${destX}']`);
+                if (permanentHighlight) permanentHighlight.classList.add('highlight-destination');
+            }
+        } else {
+             // If the last item is not a portal (i.e. we are at a one-way destination), the active level is its level
+            activeLevel = parseInt(lastCoord.level);
+        }
+        
+        updatePathDisplay();
+    }
+
+    function handleStartOver() {
+        pathStarted = false;
+        activeLevel = -1;
+        pathCoords = [];
+        if (permanentHighlight) {
+            permanentHighlight.classList.remove('highlight-destination');
+            permanentHighlight = null;
+        }
+        instructionsDiv.innerHTML = 'Please click on your starting cell. We suggest the Start cell at Level 1 (4,5).';
+        updatePathDisplay();
+    }
+    
+    function handleCopyPath() {
+        const pathText = pathCoords.map(coord => `Level ${coord.level} (${coord.x}, ${coord.y})`).join('\n');
+        
+        const textarea = document.createElement('textarea');
+        textarea.value = pathText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            copyPathBtn.textContent = 'Copied!';
+            setTimeout(() => { copyPathBtn.textContent = 'Copy Path'; }, 2000);
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            copyPathBtn.textContent = 'Error';
+             setTimeout(() => { copyPathBtn.textContent = 'Copy Path'; }, 2000);
+        }
+        document.body.removeChild(textarea);
+    }
+
+    function updatePathDisplay() {
+        // Show/hide control buttons
+        const hasPath = pathCoords.length > 0;
+        undoBtn.classList.toggle('hidden', pathCoords.length <= 1);
+        startOverBtn.classList.toggle('hidden', !hasPath);
+        copyPathBtn.classList.toggle('hidden', !hasPath);
+
+        // Clear previous path visuals from the map
+        document.querySelectorAll('.highlight-path-step').forEach(el => el.classList.remove('highlight-path-step'));
+        document.querySelectorAll('.path-number-overlay').forEach(el => el.remove());
+
+        // Update list and draw new path visuals
+        pathList.innerHTML = '';
+        pathCoords.forEach((coord, index) => {
+            const li = document.createElement('li');
+            li.textContent = `Level ${coord.level} (${coord.x}, ${coord.y})`;
+            
+            // Store coordinates for easy access on hover
+            li.dataset.level = coord.level;
+            li.dataset.x = coord.x;
+            li.dataset.y = coord.y;
+
+            li.addEventListener('mouseover', () => {
+                const cell = document.querySelector(`.cell[data-level='${li.dataset.level}'][data-y='${li.dataset.y}'][data-x='${li.dataset.x}']`);
+                if (cell) cell.classList.add('highlight-path-hover');
+            });
+
+            li.addEventListener('mouseout', () => {
+                const cell = document.querySelector(`.cell[data-level='${li.dataset.level}'][data-y='${li.dataset.y}'][data-x='${li.dataset.x}']`);
+                if (cell) cell.classList.remove('highlight-path-hover');
+            });
+            pathList.appendChild(li);
+
+            // Add highlights and numbers to the map
+            const cellOnMap = document.querySelector(`.cell[data-level='${coord.level}'][data-y='${coord.y}'][data-x='${coord.x}']`);
+            if (cellOnMap) {
+                cellOnMap.classList.add('highlight-path-step');
+                const numberOverlay = document.createElement('div');
+                numberOverlay.className = 'path-number-overlay';
+                numberOverlay.textContent = index + 1;
+                cellOnMap.appendChild(numberOverlay);
+            }
+        });
+        
+        // Update map opacities
+        for (let i = 1; i <= 4; i++) {
+            const levelContainer = document.getElementById(`level-container-${i}`);
+            if (activeLevel === -1) { // Before start
+                levelContainer.classList.remove('dimmed-map');
+            } else {
+                levelContainer.classList.toggle('dimmed-map', i !== activeLevel);
+            }
+        }
+    }
+
+    function applyZoom() {
+        zoomDisplay.textContent = `${currentZoom}%`;
+        mapsContainer.style.transform = `scale(${currentZoom / 100})`;
+    }
+
+    // --- 5. UI CONTROLS ---
+    moveLeftBtn.addEventListener('click', () => {
+        appContainer.style.flexDirection = 'row-reverse';
+    });
+    moveRightBtn.addEventListener('click', () => {
+        appContainer.style.flexDirection = 'row';
+    });
+    undoBtn.addEventListener('click', handleUndo);
+    startOverBtn.addEventListener('click', handleStartOver);
+    copyPathBtn.addEventListener('click', handleCopyPath);
+    
+    layoutToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            mapsGrid.classList.remove('static-layout');
+            mapsGrid.classList.add('dynamic-layout');
+        } else {
+            mapsGrid.classList.remove('dynamic-layout');
+            mapsGrid.classList.add('static-layout');
+        }
+    });
+
+    zoomInBtn.addEventListener('click', () => {
+        if (currentZoom < 200) {
+            currentZoom += 10;
+            applyZoom();
+        }
+    });
+
+    zoomOutBtn.addEventListener('click', () => {
+        if (currentZoom > 50) {
+            currentZoom -= 10;
+            applyZoom();
+        }
+    });
+});
+</script>
+
+</body>
+</html>
+
+
