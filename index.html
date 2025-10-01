@@ -276,6 +276,7 @@
                  <span><span class="font-bold text-blue-400">S</span> = Start</span>
                  <span><span class="font-bold text-emerald-400">P</span> = Portal</span>
                  <span><span class="font-bold text-violet-400">T</span> = Treasure/Secret</span>
+                 <span><span class="font-bold" style="color: #F59E0B;">I</span> = Item</span>
                  <span><span class="font-bold text-amber-400">▶</span> = One-Way Door</span>
                  <span class="flex items-center"><div class="w-4 h-4 rounded bg-amber-400 mr-2"></div> = One-Way Portal Link</span>
                  <span class="flex items-center"><div class="w-4 h-4 rounded bg-emerald-400 mr-2"></div> = Two-Way Portal Link</span>
@@ -823,18 +824,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cellData) {
                     const content = document.createElement('div');
                     content.className = 'cell-content';
-                    if (cellData.start) { content.textContent = 'S'; content.style.color = '#60A5FA'; } 
-                    else if (cellData.treasure) { content.textContent = 'T'; content.style.color = '#A78BFA'; } 
-                    else if (cellData.portal) { content.textContent = 'P'; content.style.color = '#34D399'; }
+                    let tooltipText = '';
+
+                    if (cellData.start) {
+                        content.textContent = 'S';
+                        content.style.color = '#60A5FA';
+                    } else if (cellData.treasure) {
+                        content.textContent = 'T';
+                        content.style.color = '#A78BFA';
+                        tooltipText = cellData.treasure.trim();
+                    } else if (cellData.portal) {
+                        content.textContent = 'P';
+                        content.style.color = '#34D399';
+                    } else if (cellData.itemName && cellData.itemName.trim().length > 0) {
+                        content.textContent = 'I';
+                        content.style.color = '#F59E0B'; // amber-500
+                        tooltipText = cellData.itemName.trim();
+                    }
+                    
                     cellDiv.appendChild(content);
 
-                    // Add tooltip for treasure items
-                    if (cellData.treasure && cellData.treasure.trim().length > 0) {
+                    // Add tooltip if there's text for it
+                    if (tooltipText.length > 0) {
                         const tooltip = document.createElement('span');
                         tooltip.className = 'tooltip';
-                        tooltip.textContent = cellData.treasure.trim();
+                        tooltip.textContent = tooltipText;
                         cellDiv.appendChild(tooltip);
                     }
+
 
                     if(cellData.door && cellData.door.trim().length > 0){
                         const doorArrow = document.createElement('div');
